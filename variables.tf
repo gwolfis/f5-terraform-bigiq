@@ -26,7 +26,7 @@ variable "f5_ami_search_name" {
 }
 
 variable "admin_user" { default = "admin"}
-variable "admin_password" { default = "F5twister2020!"}
+variable "admin_password" { default = ""}
 
 variable "tenant" { default = "Team_A"}
 variable "application" { default = "App_1"}
