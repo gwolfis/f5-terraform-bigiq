@@ -1,6 +1,29 @@
+terraform {
+  required_version = "~> 0.14"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">3.8.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = ">2.3.0"
+    }
+    template = {
+      source  = "hashicorp/template"
+      version = ">2.1.2"
+    }
+    null = {
+      source  = "hashicorp/null"
+      version = ">2.1.2"
+    }
+    local = {
+      source  = "hashicorp/local"
+      version = "2.1.0"
+    }
+  }
+}
 
-#
-# Provider section
 provider "aws" {
   region = var.region
 }
@@ -155,36 +178,69 @@ module bigip {
   f5_ami_search_name  = var.f5_ami_search_name
 }
 
-data "template_file" "bigip_do_json" {
-  template = file("${path.module}/do-bigiq.json")
+# data "template_file" "startup_script" {
+#   template = "${file("${path.module}/startup-script.tpl")}"
+#   vars = {
+#     admin_user     = var.admin_user 
+#     admin_password = var.admin_password
+#     targethost     = "${join(",", flatten(module.bigip.mgmt_addresses))}"
+#     targetsshkey   = var.targetsshkey
+#     bigiq_mgmt_ip  = var.bigiq_mgmt_ip
+#     }
+# }
+
+# data "template_file" "bigip_do_json" {
+#   template = file("${path.module}/do-bigiq.json")
   
-  vars = {
-    admin_user     = var.admin_user 
-    admin_password = var.admin_password
-    targethost     = module.bigip.mgmt_addressess[0]
-    targetsshkey   = var.targetsshkey
-  }
-}
+#   vars = {
+#     admin_user     = var.admin_user 
+#     admin_password = var.admin_password
+#     targethost     = "${join(",", flatten(module.bigip.mgmt_addresses))}"
+#     targetsshkey   = var.targetsshkey
+#   }
+#   depends_on = [module.bigip]
+# }
 
-# Run REST API for configuration
-resource "local_file" "bigip_do_file" {
-  content  = data.template_file.bigip_do_json.rendered
-  filename = "${path.module}/${var.rest_bigip_do_file}"
-}
+# # Run REST API for configuration
+# resource "local_file" "bigip_do_file" {
+#   depends_on = [module.bigip]
+#   content  = data.template_file.bigip_do_json.rendered
+#   filename = "${path.module}/bigip.do.json"
+# }
 
-resource "null_resource" "bigip01_DO" {
-  depends_on = [module.bigip]
-  # Running DO REST API
-  provisioner "local-exec" {
-    command = <<-EOF
-      #!/bin/bash
-      sleep 420
-      curl -ks -X ${var.rest_do_method} https://${var.bigiq_mgmt_ip}${var.rest_do_uri} -u ${var.admin_user}:${var.admin_password} -d @${var.rest_bigip_do_file}
-      x=1; while [ $x -le 30 ]; do STATUS=$(curl -s -k -X GET https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding/task -u ${var.admin_user}:${var.admin_password}); if ( echo $STATUS | grep "OK" ); then break; fi; sleep 10; x=$(( $x + 1 )); done
-      sleep 10
-    EOF
-  }
-}
+# resource "null_resource" "bigip01_DO" {
+#   depends_on = [module.bigip]
+#   # Running DO REST API
+#   provisioner "local-exec" {
+#     command = <<-EOF
+#       #!bin/bash
+#       sleep 420
+#       json=$(curl -ks -X POST -d '{"username": '${var.admin_user}', "password": '${var.admin_password}', "loginProviderName":"local"}' https://${var.bigiq_mgmt_ip}/mgmt/shared/authn/login)
+#       token=$(echo $json | jq -r '.token.token')
+#       echo $token
+#       onboard=$(curl -ks -X POST -H "X-F5-Auth-Token: $token" https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding -d @do-bigiq.json)
+#       echo $onboard | jq
+#       taskid=$(echo $onboard | jq -r '.id' )
+#       #echo $taskid
+#       #x=1; while [ $x -le 30 ]; do STATUS=$(curl -s -k -X GET -H "X-F5-Auth-Token: $token" https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding/task/$taskid); if ( echo $STATUS | grep "OK" ); then break; fi; sleep 10; x=$(( $x + 1 )); done
+#       #sleep 10
+#     EOF
+#   }
+# }
+
+# resource "null_resource" "bigip01_DO" {
+#   depends_on = [module.bigip]
+#   # Running DO REST API
+#   provisioner "local-exec" {
+#     command = <<-EOF
+#       #!bin/bash
+#       #sleep 420
+#       curl -ks -X POST https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding -u ${var.admin_user}:${var.admin_password} -d @${var.rest_bigip_do_file}
+#       x=1; while [ $x -le 30 ]; do STATUS=$(curl -s -k -X GET https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding/task -u ${var.admin_user}:${var.admin_password}); if ( echo $STATUS | grep "OK" ); then break; fi; sleep 10; x=$(( $x + 1 )); done
+#       sleep 10
+#     EOF
+#   }
+# }
 
 #
 # Create Autodiscovery WebServers

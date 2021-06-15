@@ -41,6 +41,4 @@ variable "rtb_bigiq" {default = "rtb-0cd4e1c999b2544b8"}
 #BIG-IQ DO vars
 variable "targetsshkey" { default = "CE-lab-wolfis.pem"}
 variable "bigiq_mgmt_ip"  { default= "10.42.1.92"}
-variable "rest_do_method" { default= "POST"}
-variable "rest_do_uri" { default= "/mgmt/shared/declarative-onboarding"}
 variable "rest_bigip_do_file" { default= "bigip_do_data.json"}

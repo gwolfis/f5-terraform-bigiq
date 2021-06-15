@@ -5,3 +5,5 @@ todo:
 - include BIG-IQ licensing
 - When BIG-IP gets deleted, remove it from BIG-IQ Device Management
 - Add AS3 declaration
+- Test deployment multiple BIG-IPs
+- create ELB/NLB in front of BIG-IPs

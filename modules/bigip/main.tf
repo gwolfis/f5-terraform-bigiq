@@ -94,7 +94,7 @@ resource "aws_instance" "f5_bigip" {
   iam_instance_profile = aws_iam_instance_profile.bigip_profile.name
   key_name             = var.ec2_key_name
   monitoring           = true
-
+  
   root_block_device {
     delete_on_termination = true
   }
@@ -131,13 +131,18 @@ resource "aws_instance" "f5_bigip" {
   }
 
   # build user_data file from template
-  //user_data = templatefile(
-    //"${path.module}/f5_onboard.tpl",
-    //{
-      //user_name     = var.admin_username
-      //user_password = var.admin_password
-    //}
-  //)
+  user_data = templatefile(
+    "${path.module}/startup-script.tpl",
+      {
+      admin_user     = var.admin_user
+      admin_password = var.admin_password
+      #targethost     = "${join(",", flatten(module.bigip.mgmt_addresses))}"
+      #targethost     = aws_network_interface.mgmt[0].private_ips
+      targethost     = module.bigip.*.private_addresses[0]["mgmt_private"]["private_ip"][0]
+      targetsshkey   = var.targetsshkey
+      bigiq_mgmt_ip  = var.bigiq_mgmt_ip
+      }
+  )
 
   depends_on = [aws_eip.mgmt]
 

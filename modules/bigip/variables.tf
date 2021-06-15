@@ -1,3 +1,10 @@
+#BIG-IQ DO vars
+variable "targetsshkey"       { default = "CE-lab-wolfis.pem"}
+variable "bigiq_mgmt_ip"      { default= "10.42.1.92"}
+variable "rest_bigip_do_file" { default= "bigip_do_data.json"}
+variable "admin_user"         { default= "admin"}
+variable "admin_password"     { default= ""}
+
 variable "owner" {
   description = "Owner for resources created by this module"
   type        = string

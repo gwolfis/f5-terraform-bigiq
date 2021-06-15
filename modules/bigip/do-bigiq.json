@@ -31,11 +31,11 @@
             }
         }
     },
-    "targetHost": "${targethost}",
+    "targetHost": "$targethost",
     "targetPort": 8443,
     "targetUsername": "admin",
     "targetSshKey": {
-        "path": "/var/ssh/restnoded/CE-lab-wolfis.pem"
+        "path": "/var/ssh/restnoded/$targetsshkey"
     },
     "bigIqSettings": {
         "failImportOnConflict": false,
