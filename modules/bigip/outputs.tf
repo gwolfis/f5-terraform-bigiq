@@ -36,3 +36,14 @@ output "private_addresses" {
   description = "List of BIG-IP private addresses"
   value       = aws_network_interface.private[*].private_ips
 }
+
+output "bigip_data" {
+  value = <<EOF
+  
+      mgmt_priv_ips   : ${join(",", aws_network_interface.mgmt.private_ips)}
+      mgmt_pub_ips    : ${join(",", aws_network_interface.mgmt.public_ips)}
+      mgmt_public_dns : ${join(",", aws_eip.mgmt.public_dns)}
+      mgmt_url        : https://${element(aws_eip.mgmt.public_dns, 0)}:8443
+      aws_secret_name : ${aws_secretsmanager_secret.bigip.name}
+    EOF
+}

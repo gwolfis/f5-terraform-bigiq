@@ -50,7 +50,7 @@ resource "aws_secretsmanager_secret" "bigip" {
 }
 resource "aws_secretsmanager_secret_version" "bigip-pwd" {
   secret_id     = aws_secretsmanager_secret.bigip.id
-  secret_string = var.admin_password
+  secret_string = var.user_password
 }
 
 #
@@ -152,95 +152,182 @@ module security {
   vpc_id      = module.vpc.vpc_id
 }
 
+# 
+# Create Management Network Interfaces
 #
-# Create BIG-IP
+resource "aws_network_interface" "mgmt" {
+  count           = length(var.vpc_mgmt_subnet_ids)
+  subnet_id       = var.vpc_mgmt_subnet_ids[count.index]
+  security_groups = var.mgmt_subnet_security_group_ids
+
+  tags = {
+    Name        = format("%s-mgmt-intf-%s", var.owner, random_id.id.hex)
+    Terraform   = "true"
+    Environment = var.environment
+    Owner       = var.owner
+  }
+}
+
 #
-module bigip {
-  source = "./modules/bigip"
+# add an elastic IP to the BIG-IP management interface
+#
+resource "aws_eip" "mgmt" {
+  count             = var.mgmt_eip ? length(var.vpc_mgmt_subnet_ids) : 0
+  network_interface = aws_network_interface.mgmt[count.index].id
+  vpc               = true
 
-  owner       = var.owner
-  environment = var.environment
-  random_id   = random_id.id.hex
+  tags = {
+    Name        = format("%s-mgmt-eip-%s", var.owner, random_id.id.hex)
+    Terraform   = "true"
+    Environment = var.environment
+    Owner       = var.owner
+  }
+}
 
-  //f5_instance_count           = length(local.setup.aws.azs)
-  f5_instance_count           = var.f5_instance_count
-  ec2_key_name                = var.ec2_key_name
-  aws_secretmanager_secret_id = aws_secretsmanager_secret.bigip.id
+# 
+# Create Public Network Interfaces
+#
+resource "aws_network_interface" "public" {
+  count             = length(var.vpc_public_subnet_ids)
+  subnet_id         = var.vpc_public_subnet_ids[count.index]
+  security_groups   = var.public_subnet_security_group_ids
+  private_ips_count = var.application_endpoint_count
 
-  mgmt_subnet_security_group_ids = [
+  tags = {
+    Name        = format("%s-pub-intf-%s", var.owner, random_id.id.hex)
+    Terraform   = "true"
+    Environment = var.environment
+    Owner       = var.owner
+  }
+}
+
+# 
+# Create Private Network Interfaces
+#
+resource "aws_network_interface" "private" {
+  count           = length(var.vpc_private_subnet_ids)
+  subnet_id       = var.vpc_private_subnet_ids[count.index]
+  security_groups = var.private_subnet_security_group_ids
+
+  tags = {
+    Name        = format("%s-priv-intf-%s", var.owner, random_id.id.hex)
+    Terraform   = "true"
+    Environment = var.environment
+    Owner       = var.owner
+  }
+}
+
+#
+# Deploy BIG-IP
+#
+resource "aws_instance" "f5_bigip" {
+  # determine the number of BIG-IPs to deploy
+  count                = var.f5_instance_count
+  //count                = length(local.setup.aws.azs
+  instance_type        = var.ec2_instance_type
+  ami                  = var.f5_ami
+  iam_instance_profile = aws_iam_instance_profile.bigip_profile.name
+  key_name             = var.ec2_key_name
+  monitoring           = true
+  subnet_id            = module.vpc.public_subnets[0]
+  //user_data            = data.template_file.user_data_bigip.rendered
+  
+  vpc_security_group_ids = [
     module.security.web_server_sg,
     module.security.web_server_secure_sg,
     module.security.ssh_secure_sg,
     module.security.bigip_mgmt_secure_sg
   ]
 
-  vpc_mgmt_subnet_ids = module.vpc.public_subnets
-  f5_ami_search_name  = var.f5_ami_search_name
+  root_block_device {
+    delete_on_termination = true
+  }
+
+  # set the mgmt interface 
+  dynamic "network_interface" {
+    for_each = length(aws_network_interface.mgmt) > count.index ? toset([aws_network_interface.mgmt[count.index].id]) : toset([])
+
+    content {
+      network_interface_id = network_interface.value
+      device_index         = 0
+    }
+  }
+
+  # set the public interface only if an interface is defined
+  dynamic "network_interface" {
+    for_each = length(aws_network_interface.public) > count.index ? toset([aws_network_interface.public[count.index].id]) : toset([])
+
+    content {
+      network_interface_id = network_interface.value
+      device_index         = 1
+    }
+  }
+
+
+  # set the private interface only if an interface is defined
+  dynamic "network_interface" {
+    for_each = length(aws_network_interface.private) > count.index ? toset([aws_network_interface.private[count.index].id]) : toset([])
+
+    content {
+      network_interface_id = network_interface.value
+      device_index         = 2
+    }
+  }
+  
+  # build user_data file from template
+  user_data = templatefile(
+    "${path.module}/f5_onboard2.tpl",
+      {
+      user_name     = var.user_name
+      user_password = var.user_password
+      //secrets_id    = aws_secretsmanager_secret.bigip.id
+      targethost    = join(",", aws_network_interface.mgmt.*.private_ip)
+      targetsshkey  = var.targetsshkey
+      bigiq_mgmt_ip = var.bigiq_mgmt_ip
+      //onboard_log   = var.onboard_log
+      }
+  )
+
+  depends_on = [aws_eip.mgmt]
+
+  tags = {
+    Name        = format("%s-f5-bigip-%s-%d", var.owner, random_id.id.hex, count.index)
+    Terraform   = "true"
+    Environment = var.environment
+    Owner       = var.owner
+    Role        = "bigip"
+    CWLogGroup  = format("%s-f5-bigip-cloudwatch-lg-%s", var.owner, random_id.id.hex)
+    CWLogStream = format("%s-f5-bigip-cloudwatch-ls-%s", var.owner, random_id.id.hex)
+  }
 }
 
-# data "template_file" "startup_script" {
-#   template = "${file("${path.module}/startup-script.tpl")}"
+# data "template_file" "user_data_bigip" {
+#   template = file("${path.module}/f5_onboard.tpl")
 #   vars = {
-#     admin_user     = var.admin_user 
-#     admin_password = var.admin_password
-#     targethost     = "${join(",", flatten(module.bigip.mgmt_addresses))}"
-#     targetsshkey   = var.targetsshkey
-#     bigiq_mgmt_ip  = var.bigiq_mgmt_ip
-#     }
-# }
-
-# data "template_file" "bigip_do_json" {
-#   template = file("${path.module}/do-bigiq.json")
-  
-#   vars = {
-#     admin_user     = var.admin_user 
-#     admin_password = var.admin_password
-#     targethost     = "${join(",", flatten(module.bigip.mgmt_addresses))}"
-#     targetsshkey   = var.targetsshkey
-#   }
-#   depends_on = [module.bigip]
-# }
-
-# # Run REST API for configuration
-# resource "local_file" "bigip_do_file" {
-#   depends_on = [module.bigip]
-#   content  = data.template_file.bigip_do_json.rendered
-#   filename = "${path.module}/bigip.do.json"
-# }
-
-# resource "null_resource" "bigip01_DO" {
-#   depends_on = [module.bigip]
-#   # Running DO REST API
-#   provisioner "local-exec" {
-#     command = <<-EOF
-#       #!bin/bash
-#       sleep 420
-#       json=$(curl -ks -X POST -d '{"username": '${var.admin_user}', "password": '${var.admin_password}', "loginProviderName":"local"}' https://${var.bigiq_mgmt_ip}/mgmt/shared/authn/login)
-#       token=$(echo $json | jq -r '.token.token')
-#       echo $token
-#       onboard=$(curl -ks -X POST -H "X-F5-Auth-Token: $token" https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding -d @do-bigiq.json)
-#       echo $onboard | jq
-#       taskid=$(echo $onboard | jq -r '.id' )
-#       #echo $taskid
-#       #x=1; while [ $x -le 30 ]; do STATUS=$(curl -s -k -X GET -H "X-F5-Auth-Token: $token" https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding/task/$taskid); if ( echo $STATUS | grep "OK" ); then break; fi; sleep 10; x=$(( $x + 1 )); done
-#       #sleep 10
-#     EOF
+#     user_name     = var.user_name
+#     user_password = var.user_password
+#     targethost    = join(",", aws_network_interface.mgmt.*.private_ip)
+#     //targethost    = join(",", aws_instance.f5_bigip.*.private_ip)
+#     targetsshkey  = var.targetsshkey
+#     bigiq_mgmt_ip = var.bigiq_mgmt_ip
+#     onboard_log   = var.onboard_log
 #   }
 # }
 
-# resource "null_resource" "bigip01_DO" {
-#   depends_on = [module.bigip]
-#   # Running DO REST API
-#   provisioner "local-exec" {
-#     command = <<-EOF
-#       #!bin/bash
-#       #sleep 420
-#       curl -ks -X POST https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding -u ${var.admin_user}:${var.admin_password} -d @${var.rest_bigip_do_file}
-#       x=1; while [ $x -le 30 ]; do STATUS=$(curl -s -k -X GET https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding/task -u ${var.admin_user}:${var.admin_password}); if ( echo $STATUS | grep "OK" ); then break; fi; sleep 10; x=$(( $x + 1 )); done
-#       sleep 10
-#     EOF
-#   }
-# }
+resource "aws_cloudwatch_log_group" "f5_bigip_cloudwatch_lg" {
+  name = format("%s-f5-bigip-cloudwatch-lg-%s", var.owner, random_id.id.hex)
+
+  tags = {
+    Terraform   = "true"
+    Environment = var.environment
+    Owner       = var.owner
+  }
+}
+
+resource "aws_cloudwatch_log_stream" "f5_bigip_cloudwatch_ls" {
+  name           = format("%s-f5-bigip-cloudwatch-ls-%s", var.owner, random_id.id.hex)
+  log_group_name = aws_cloudwatch_log_group.f5_bigip_cloudwatch_lg.name
+}
 
 #
 # Create Autodiscovery WebServers
