@@ -230,6 +230,7 @@ resource "aws_instance" "f5_bigip" {
   key_name             = var.ec2_key_name
   monitoring           = true
   subnet_id            = module.vpc.public_subnets[0]
+  user_data = data.template_file.bigip_do_tpl.rendered
   //user_data            = data.template_file.user_data_bigip.rendered
   
   vpc_security_group_ids = [
@@ -275,18 +276,18 @@ resource "aws_instance" "f5_bigip" {
   }
   
   # build user_data file from template
-  user_data = templatefile(
-    "${path.module}/f5_onboard2.tpl",
-      {
-      user_name     = var.user_name
-      user_password = var.user_password
+  //user_data = templatefile(
+    //"${path.module}/f5_onboard2.tpl",
+      //{
+      //user_name     = var.user_name
+      //user_password = var.user_password
       //secrets_id    = aws_secretsmanager_secret.bigip.id
-      targethost    = join(",", aws_network_interface.mgmt.*.private_ip)
-      targetsshkey  = var.targetsshkey
-      bigiq_mgmt_ip = var.bigiq_mgmt_ip
+      //targethost    = join(",", aws_network_interface.mgmt.*.private_ip)
+      //targetsshkey  = var.targetsshkey
+      //bigiq_mgmt_ip = var.bigiq_mgmt_ip
       //onboard_log   = var.onboard_log
-      }
-  )
+      //}
+  //)
 
   depends_on = [aws_eip.mgmt]
 
@@ -301,18 +302,57 @@ resource "aws_instance" "f5_bigip" {
   }
 }
 
-# data "template_file" "user_data_bigip" {
-#   template = file("${path.module}/f5_onboard.tpl")
-#   vars = {
-#     user_name     = var.user_name
-#     user_password = var.user_password
-#     targethost    = join(",", aws_network_interface.mgmt.*.private_ip)
-#     //targethost    = join(",", aws_instance.f5_bigip.*.private_ip)
-#     targetsshkey  = var.targetsshkey
-#     bigiq_mgmt_ip = var.bigiq_mgmt_ip
-#     onboard_log   = var.onboard_log
+data "template_file" "bigip_do_tpl" {
+  template = file("${path.module}/do-bigiq.tpl")
+
+  vars = {
+    user_name     = var.user_name 
+    user_password = var.user_password
+    //targethost     = aws_instance.f5_bigip[0].private_ip
+    targethost    = join(",", aws_network_interface.mgmt.*.private_ip)
+    targetsshkey  = var.ec2_key_name
+  }
+}
+
+# Run REST API for configuration
+resource "local_file" "bigip_do_file" {
+  content  = data.template_file.bigip_do_tpl.rendered
+  filename = "${path.module}/${var.rest_bigip_do_file}"
+}
+
+# resource "null_resource" "bigip01_DO" {
+#   depends_on = [aws_instance.f5_bigip]
+#   # Running DO REST API
+#   provisioner "local-exec" {
+#     command = <<-EOF
+#       #!/bin/bash
+#       sleep 180
+#       curl -ks -X POST https://${var.bigiq_mgmt_ip}${var.rest_do_uri} -u ${var.user_name}:${var.user_password} -d @${var.rest_bigip_do_file}
+#       x=1; while [ $x -le 30 ]; do STATUS=$(curl -s -k -X GET https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding/task -u ${var.user_name}:${var.user_password}); if ( echo $STATUS | grep "OK" ); then break; fi; sleep 10; x=$(( $x + 1 )); done
+#       sleep 10
+#     EOF
 #   }
 # }
+
+resource "null_resource" "bigip01_DO" {
+  depends_on = [aws_instance.f5_bigip]
+  # Running DO REST API
+  provisioner "local-exec" {
+    command = <<-EOF
+      #!bin/bash
+      sleep 300
+      json=$(curl -ks -X POST -d '{"username": '${var.user_name}', "password": '${var.user_password}', "loginProviderName":"local"}' https://${var.bigiq_mgmt_ip}/mgmt/shared/authn/login)
+      token=$(echo $json-onboard | jq -r '.token.token')
+      echo $token
+      onboard=$(curl -ks -X POST -H "X-F5-Auth-Token: $token" https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding -d @${var.rest_bigip_do_file})
+      echo $onboard | jq
+      taskid=$(echo $onboard | jq -r '.id')
+      echo $taskid >> taskid.txt
+      x=1; while [ $x -le 30 ]; do STATUS=$(curl -s -k -X GET -H "X-F5-Auth-Token: $token" https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding/task); if ( echo $STATUS | grep "OK" ); then break; fi; sleep 10; x=$(( $x + 1 )); done
+      sleep 10
+    EOF
+  }
+}
 
 resource "aws_cloudwatch_log_group" "f5_bigip_cloudwatch_lg" {
   name = format("%s-f5-bigip-cloudwatch-lg-%s", var.owner, random_id.id.hex)

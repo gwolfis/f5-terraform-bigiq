@@ -26,7 +26,7 @@ variable "f5_ami_search_name" {
 }
 
 variable "user_name" { default = "admin"}
-variable "user_password" { default = ""}
+variable "user_password" { default = "F5twister2020!"}
 variable "onboard_log" { default = "/var/log/startup-script.log" }
 variable "tenant" { default = "Team_A"}
 variable "application" { default = "App_1"}
@@ -40,7 +40,7 @@ variable "rtb_bigiq" {default = "rtb-0cd4e1c999b2544b8"}
 
 #BIG-IQ DO vars
 variable "targetsshkey" { default = "CE-lab-wolfis.pem"}
-variable "bigiq_mgmt_ip"  { default= "10.42.1.92"}
+variable "bigiq_mgmt_ip"  { default= "3.65.66.216"}
 variable "rest_bigip_do_file" { default= "bigip_do_data.json"}
 
 # Taken from module.bigip

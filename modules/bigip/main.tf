@@ -147,6 +147,7 @@ resource "aws_instance" "f5_bigip" {
       //admin_password = var.admin_password
       #targethost     = "${join(",", flatten(module.bigip.mgmt_addresses))}"
       #targethost     = aws_network_interface.mgmt[0].private_ips
+      #targethost    = join(",", aws_network_interface.mgmt.*.private_ip)
       #targethost     = module.bigip.*.private_addresses[0]["mgmt_private"]["private_ip"][0]
       //targetsshkey   = var.targetsshkey
       //bigiq_mgmt_ip  = var.bigiq_mgmt_ip

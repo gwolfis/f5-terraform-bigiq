@@ -18,24 +18,24 @@
                 ],
                 "timezone": "Europe/Amsterdam"
             },
-            "admin": {
+            "${user_name}": {
                 "class": "User",
                 "userType": "regular",
                 "partitionAccess": {
                     "all-partitions": {
-                        "role": "admin"
+                        "role": "${user_name}"
                     }
                 },
                 "shell": "tmsh",
-                "password": "F5twister2020!"
+                "password": "${user_password}"
             }
         }
     },
-    "targetHost": "$targethost",
+    "targetHost": "${targethost}",
     "targetPort": 8443,
     "targetUsername": "admin",
     "targetSshKey": {
-        "path": "/var/ssh/restnoded/$targetsshkey"
+        "path": "/var/ssh/restnoded/${targetsshkey}"
     },
     "bigIqSettings": {
         "failImportOnConflict": false,

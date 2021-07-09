@@ -1,11 +1,34 @@
 #!/bin/bash
 
-BIGIQ=3.65.66.216
-#BIGIQ=10.42.1.92
-USER=admin
-PASS=F5twister2020!
+# BIGIQ=3.65.66.216
+# #BIGIQ=10.42.1.92
+# USER=admin
+# PASS=F5twister2020!
 
-sleep 420
+BIGIQ=${bigiq_mgmt_ip}
+USER=${user_name}
+PASS=${user_password}
+CREDS="admin:"$user_password
+
+# CHECK TO SEE NETWORK IS READY
+CNT=0
+while true
+do
+  STATUS=$(curl -s -k -I .com | grep HTTP)
+  if [[ $STATUS == *"200"* ]]; then
+    echo "Got 200! VE is Ready!"
+    break
+  elif [ $CNT -le 6 ]; then
+    echo "Status code: $STATUS  Not done yet..."
+    CNT=$[$CNT+1]
+  else
+    echo "GIVE UP..."
+    break
+  fi
+  sleep 10
+done
+
+sleep 60
 
 echo $BIGIQ
 
@@ -25,16 +48,20 @@ echo $taskid
 
 status=$(curl -s -k -X GET -H "X-F5-Auth-Token: $token" https://$BIGIQ/mgmt/shared/declarative-onboarding/task/$taskid)
 
-until echo $status | grep "OK"
+Check DO Task
+CNT=0
+while true
 do
-   echo "($status) BIG-IP onboarding via BIG-IQ in progress"
-   sleep 10
+  STATUS=$(curl -u $CREDS -X GET -s -k https://$BIGIQ/mgmt/shared/declarative-onboarding/task)
+  if ( echo $STATUS | grep "OK" ); then
+    echo -e "\n"$(date) "DO task successful"
+    break
+  elif [ $CNT -le 30 ]; then
+    echo -e "\n"$(date) "DO task working..."
+    CNT=$[$CNT+1]
+  else
+    echo -e "\n"$(date) "DO task fail"
+    break
+  fi
+  sleep 10
 done
-echo "($status) Onboarding via BIG-IQ has finished"
-
-
-#url -s -k -X GET https://${var.bigiq_mgmt_ip}/mgmt/shared/declarative-onboarding/task -u ${var.admin_user}:${var.admin_password})
-
-#info=$(curl -ks -X GET -H "X-F5-Auth-Token: $token" https://$BIGIQ/mgmt/shared/declarative-onboarding/info)
-
-#echo "$info" | jq
